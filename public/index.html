@@ -1,0 +1,89 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AYUSH Health Record</title>
+<style>
+:root{--bg:#f6faf6;--cd:#fff;--tx:#17291f;--mu:#5d6e64;--ac:#1f7a4d;--bd:#d9e6dc;--wa:#b45309;--er:#b91c1c;--s1:#2e7d32;--s2:#1565c0;--s3:#b26a00;--s4:#6a3fb5;--s5:#c2185b}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1612;--cd:#17211b;--tx:#e6f0ea;--mu:#9bb0a3;--ac:#4cc58a;--bd:#2a3a31;--wa:#f59e0b;--er:#f87171}}
+*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{background:var(--ac);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}header b{font-size:19px}
+main{max-width:860px;margin:0 auto;padding:16px}.c{background:var(--cd);border:1px solid var(--bd);border-radius:14px;padding:18px;margin-bottom:14px}
+h2{margin:0 0 8px}.mu{color:var(--mu);font-size:14px}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:14px}.tabs button{flex:none;border:1px solid var(--bd);background:var(--cd);color:var(--tx);padding:10px 16px;border-radius:99px;font:inherit;cursor:pointer}.tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+button.p{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:12px 18px;font:inherit;cursor:pointer}button.s{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+input,select,textarea{width:100%;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit;margin:4px 0 10px}
+label{font-size:14px;color:var(--mu)}.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1;min-width:130px}
+.tag{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;color:#fff;text-transform:capitalize}
+.ev{border-left:5px solid var(--ac);background:var(--cd);border-radius:0 12px 12px 0;padding:10px 14px;margin:8px 0;border-top:1px solid var(--bd);border-right:1px solid var(--bd);border-bottom:1px solid var(--bd)}
+.wn{padding:10px 14px;border-radius:10px;margin:6px 0;background:#fff4e5;color:#7a4300;border:1px solid #f0c27b}.wn.high{background:#fdeaea;color:#8a1111;border-color:#e8a0a0}
+.drop{border:2px dashed var(--ac);border-radius:14px;padding:26px;text-align:center}.err{color:var(--er)}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid var(--bd);text-align:left}
+img.pv{max-width:100%;max-height:260px;border-radius:10px;margin-bottom:10px}.med{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px}@media(max-width:600px){.med{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<header><b>🌿 AYUSH Health Record</b><span id="who"></span></header><main id="app"></main>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COL={ayurveda:'var(--s1)',yoga:'var(--s2)',unani:'var(--s3)',siddha:'var(--s4)',homoeopathy:'var(--s5)'};
+const FIELDS={ayurveda:['Prakriti','Vikriti'],yoga:['Stress','Sleep'],unani:['Mizaj'],siddha:['Mukkutram'],homoeopathy:['Miasm']};
+const LABEL={ayurveda:'Ayurveda',yoga:'Yoga & Naturopathy',unani:'Unani',siddha:'Siddha',homoeopathy:'Homoeopathy'};
+let S={tok:null,user:null,tab:'add',rec:null,filter:''};
+async function api(p,o={}){const h={...(S.tok?{Authorization:'Bearer '+S.tok}:{})};if(o.body&&!(o.body instanceof FormData)){h['Content-Type']='application/json';o.body=JSON.stringify(o.body)}
+ const r=await fetch('/api/v1'+p,{...o,headers:h});const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||r.status),{data:j,status:r.status});return j}
+const tag=s=>`<span class="tag" style="background:${COL[s]}">${LABEL[s]||s}</span>`;
+// ---------- login ----------
+function loginView(newUser){$('#who').textContent='';$('#app').innerHTML=`<div class="c"><h2>Your AYUSH health history, in one place</h2><p class="mu">Ayurveda, Yoga &amp; Naturopathy, Unani, Siddha and Homoeopathy: add a photo of any prescription or medicine and we keep one safe record.</p>
+<label>Mobile number</label><input id="ph" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number">
+${newUser?'<label>Your name</label><input id="nm"><label>Age</label><input id="ag" type="number">':''}<label>OTP (demo: 123456)</label><input id="otp" inputmode="numeric" maxlength="6">
+<button class="p" onclick="login()">${newUser?'Create my record':'Continue'}</button><p id="le" class="err"></p>
+<p class="mu">Practitioner demo: 9000000001 (Ayurveda) or 9000000002 (Siddha). &nbsp;<a href="/architecture.html">Architecture &amp; NFRs</a></p></div>`}
+async function login(){try{const b={phone:$('#ph').value,otp:$('#otp').value,name:$('#nm')?.value,age:$('#ag')?.value};const j=await api('/auth/login',{method:'POST',body:b});S.tok=j.token;S.user=j.user;home()}
+ catch(e){e.message=='new_user'?loginView(true):$('#le').textContent=e.message}}
+function logout(){S={tok:null,user:null,tab:'add'};loginView()}
+// ---------- patient home ----------
+async function home(){$('#who').innerHTML=`${esc(S.user.name)} · <a href="#" style="color:#fff" onclick="logout()">Log out</a>`;if(S.user.role=='practitioner')return pract();
+ S.rec=await api('/me/record');tabs()}
+function tabs(){const T=[['add','➕ Add record'],['time','📅 Timeline'],['meds','💊 Medicines'],['docs','📄 My uploads'],['priv','🔒 Privacy']];
+ $('#app').innerHTML=`<div class="tabs">${T.map(t=>`<button class="${S.tab==t[0]?'on':''}" onclick="S.tab='${t[0]}';tabs()">${t[1]}</button>`).join('')}</div>${S.rec.patient.allergies?`<div class="wn high">⚠ Allergies on record: <b>${esc(S.rec.patient.allergies)}</b></div>`:''}<div id="pane"></div>`;({add,time,meds,docs,priv})[S.tab]()}
+function add(){$('#pane').innerHTML=`<div class="c"><h2>Add a prescription, medicine photo or report</h2><p class="mu">We read the text, you check it, and it is filed into the right AYUSH record automatically.</p>
+<label>What are you adding?</label><select id="dt"><option value="prescription">Doctor's prescription</option><option value="medicine">Medicine strip / bottle photo</option><option value="report">Lab / clinic report</option></select>
+<div class="drop"><p>📷 Take a photo or choose a file (JPG, PNG, PDF)</p><input type="file" id="f" accept="image/*,application/pdf" capture="environment"><button class="p" onclick="send()">Read it for me</button></div>
+<p style="text-align:center">or <button class="s" onclick="send(true)">Type it in myself</button></p></div>`}
+async function send(manual){const fd=new FormData();fd.append('type',$('#dt').value);const f=$('#f').files[0];if(!manual){if(!f)return alert('Please choose a photo first');fd.append('file',f)}
+ $('#pane').innerHTML='<div class="c"><h2>Reading your document…</h2><p class="mu">This can take up to a minute the first time. Handwriting may need your corrections.</p></div>';
+ try{const {id}=await api('/documents',{method:'POST',body:fd});review(id)}catch(e){$('#pane').innerHTML=`<div class="c err">${esc(e.message)}</div>`}}
+async function review(id){let d;do{d=await api('/documents/'+id);if(d.status=='processing')await new Promise(r=>setTimeout(r,1500))}while(d.status=='processing');
+ if(d.status=='saved'){S.tab='time';return home()}
+ let img='';if(d.file){const b=await fetch('/api/v1/documents/'+id+'/file',{headers:{Authorization:'Bearer '+S.tok}}).then(r=>r.blob());if(b.type.startsWith('image'))img=`<img class="pv" src="${URL.createObjectURL(b)}">`}
+ window.X=d.extracted;X.medicines=X.medicines?.length?X.medicines:[{name:'',dose:'',freq:'',duration:''}];window.DID=id;form(img,d.ocr_text,[])}
+function form(img,ocr,warn){const x=X,F=FIELDS[x.system]||[];
+ $('#pane').innerHTML=`<div class="c"><h2>Check what we found</h2><p class="mu">This is a draft read from your document. Fix anything that is wrong, then save.</p>${img}
+<label>Which AYUSH system is this from?</label><select id="x_sys" onchange="sync();X.findings={};form('${img?'':''}',null,[])"><option value="">Choose…</option>${Object.keys(LABEL).map(s=>`<option value="${s}" ${x.system==s?'selected':''}>${LABEL[s]}</option>`).join('')}</select>
+<div class="row"><div><label>Doctor / practitioner</label><input id="x_doc" value="${esc(x.doctor)}"></div><div><label>Visit date</label><input id="x_date" type="date" value="${esc(x.date)}"></div></div>
+<label>Complaint (what was the problem?)</label><input id="x_cmp" value="${esc(x.complaint)}"><label>Diagnosis</label><input id="x_dx" value="${esc(x.diagnosis)}">
+${F.length?`<div class="row">${F.map(f=>`<div><label>${f}</label><input class="fd" data-k="${f}" value="${esc(x.findings?.[f])}"></div>`).join('')}</div>`:''}
+<label>Medicines</label>${x.medicines.map((m,i)=>`<div class="med"><input class="mm" data-i="${i}" data-k="name" placeholder="Medicine" value="${esc(m.name)}"><input class="mm" data-i="${i}" data-k="dose" placeholder="Dose" value="${esc(m.dose)}"><input class="mm" data-i="${i}" data-k="freq" placeholder="How often" value="${esc(m.freq)}"><input class="mm" data-i="${i}" data-k="duration" placeholder="For how long" value="${esc(m.duration)}"><button class="s" onclick="sync();X.medicines.splice(${i},1);form('',null,[])">✕</button></div>`).join('')}
+<button class="s" onclick="sync();X.medicines.push({name:'',dose:'',freq:'',duration:''});form('',null,[])">+ Add medicine</button>
+<div class="row" style="margin-top:10px"><div><label>Diet / lifestyle advice</label><input id="x_adv" value="${esc(x.advice)}"></div><div><label>Allergies (comma separated)</label><input id="x_al" value="${esc(x.allergies)}"></div></div>
+${warn.map(w=>`<div class="wn ${w.level}">⚠ ${esc(w.msg)}</div>`).join('')}${warn.length?'<p><label><input type="checkbox" id="ack" style="width:auto"> I understand these warnings and want to save anyway</label></p>':''}
+<button class="p" onclick="save()">Confirm &amp; save to my record</button> <button class="s" onclick="tabs()">Cancel</button><p id="se" class="err"></p></div>`}
+function sync(){Object.assign(X,{system:$('#x_sys').value,doctor:$('#x_doc').value,date:$('#x_date').value,complaint:$('#x_cmp').value,diagnosis:$('#x_dx').value,advice:$('#x_adv').value,allergies:$('#x_al').value});
+ X.findings={};document.querySelectorAll('.fd').forEach(e=>X.findings[e.dataset.k]=e.value);document.querySelectorAll('.mm').forEach(e=>X.medicines[e.dataset.i][e.dataset.k]=e.value)}
+async function save(){sync();try{const j=await api(`/documents/${DID}/confirm`,{method:'POST',body:{...X,ack:$('#ack')?.checked}});
+  S.rec=await api('/me/record');$('#pane').innerHTML=`<div class="c"><h2>✅ Saved</h2><p>Your information was filled into:</p><ul>${j.saved_to.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>${j.warnings.map(w=>`<div class="wn ${w.level}">⚠ ${esc(w.msg)}</div>`).join('')}<button class="p" onclick="S.tab='time';tabs()">See my timeline</button></div>`}
+ catch(e){if(e.status==409)form('',null,e.data.warnings);else $('#se').textContent=e.message}}
+function tl(list,box){const f=S.filter,L=list.filter(e=>!f||e.system==f);return `<div class="tabs">${['',...Object.keys(LABEL)].map(s=>`<button class="${f==s?'on':''}" onclick="S.filter='${s}';${box}()">${s?LABEL[s]:'All systems'}</button>`).join('')}</div>`+(L.map(e=>`<div class="ev" style="border-left-color:${COL[e.system]}">${tag(e.system)} <span class="mu">${esc(e.event_date)}</span><br>${esc(e.summary)}</div>`).join('')||'<p class="mu">Nothing here yet.</p>')}
+function time(){$('#pane').innerHTML=`<div class="c"><h2>My health timeline</h2><p class="mu">All your AYUSH visits in one place, newest first.</p>${tl(S.rec.timeline,'time')}</div>`}
+const medT=m=>`<table><tr><th>Medicine</th><th>System</th><th>Dose</th><th>How often</th><th>Duration</th></tr>${m.map(x=>`<tr><td>${esc(x.name)}${x.safety=='warned'?' ⚠':''}</td><td>${tag(x.system)}</td><td>${esc(x.dose)}</td><td>${esc(x.freq)}</td><td>${esc(x.duration)}</td></tr>`).join('')}</table>`;
+function meds(){$('#pane').innerHTML=`<div class="c"><h2>All my medicines</h2><p class="mu">From every AYUSH system, so combinations can be checked.</p>${S.rec.medicines.length?medT(S.rec.medicines):'<p class="mu">No medicines yet.</p>'}</div>`}
+async function docs(){const l=await api('/documents');$('#pane').innerHTML=`<div class="c"><h2>My uploads</h2>${l.map(d=>`<p>${esc(d.type)} · ${esc(d.created_at)} · <b>${d.status}</b> ${d.status=='review'?`<button class="s" onclick="review(${d.id})">Finish review</button>`:''}</p>`).join('')||'<p class="mu">Nothing uploaded yet.</p>'}</div>`}
+async function priv(){const [pr,cs,lg]=await Promise.all([api('/practitioners'),api('/consents'),api('/me/access-log')]);
+ $('#pane').innerHTML=`<div class="c"><h2>Who can see my records</h2><p class="mu">Doctors can see your history only if you allow it. You can take it back any time.</p>
+<div class="row"><select id="gu">${pr.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><select id="gd"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select><button class="p" onclick="grant()">Allow access</button></div>
+${cs.map(c=>`<p>${esc(c.grantee)} · until ${c.valid_till} · <b>${c.status}</b> ${c.status=='active'?`<button class="s" onclick="rev(${c.id})">Revoke</button>`:''}</p>`).join('')}</div>
+<div class="c"><h2>Who looked at my data</h2><table>${lg.map(l=>`<tr><td>${esc(l.ts)}</td><td>${esc(l.role)}</td><td>${esc(l.action)}</td><td>${esc(l.outcome)}</td></tr>`).join('')||'<tr><td class="mu">No activity yet.</td></tr>'}</table></div>`}
+async function grant(){await api('/consents',{method:'POST',body:{grantee_user_id:$('#gu').value,days:$('#gd').value}});priv()}
+async function rev(i){await api(`/consents/${i}/revoke`,{method:'POST'});priv()}
+// ---------- practitioner ----------
+function pract(){$('#app').innerHTML=`<div class="c"><h2>Find a patient</h2><p class="mu">Enter the patient's mobile number. You can view their full multi-system history only with their consent.</p><div class="row"><input id="pp" placeholder="Patient mobile number"><button class="p" onclick="find()">Search</button></div><div id="pr"></div></div>`}
+async function find(bg){const el=$('#pr');try{const p=await api('/patients/lookup?phone='+$('#pp').value);window.PID=p.id;const r=await api(`/patients/${p.id}/record${bg?'?break_glass='+encodeURIComponent(bg):''}`);S.filter='';window.PR=r;showP(r)}
+ catch(e){el.innerHTML=e.message=='consent_required'?`<div class="wn">The patient has not given you access. Ask them to allow it in <b>Privacy</b>.</div><button class="s" onclick="const w=prompt('Emergency reason (this is audited):');if(w)find(w)">Emergency access</button>`:`<p class="err">${esc(e.message)}</p>`}}
+function showP(r){$('#pr').innerHTML=`<h2>${esc(r.patient.name)} <span class="mu">ABHA ${esc(r.patient.abha_id)}</span></h2>${r.patient.allergies?`<div class="wn high">⚠ Allergies: <b>${esc(r.patient.allergies)}</b></div>`:''}<h3>Medicines across all systems</h3>${medT(r.medicines)}<h3>Timeline</h3>${tl(r.timeline,'pt')}`}
+function pt(){showP(PR)}
+loginView();
+</script></body></html>
