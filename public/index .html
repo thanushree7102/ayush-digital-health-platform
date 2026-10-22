@@ -44,7 +44,7 @@ async function home(){$('#who').innerHTML=`${esc(S.user.name)} · <a href="#" st
  S.rec=await api('/me/record');tabs()}
 function tabs(){const T=[['add','➕ Add record'],['time','📅 Timeline'],['meds','💊 Medicines'],['docs','📄 My uploads'],['priv','🔒 Privacy']];
  $('#app').innerHTML=`<div class="tabs">${T.map(t=>`<button class="${S.tab==t[0]?'on':''}" onclick="S.tab='${t[0]}';tabs()">${t[1]}</button>`).join('')}</div>${S.rec.patient.allergies?`<div class="wn high">⚠ Allergies on record: <b>${esc(S.rec.patient.allergies)}</b></div>`:''}<div id="pane"></div>`;({add,time,meds,docs,priv})[S.tab]()}
-function add(){$('#pane').innerHTML=`<div class="c"><h2>Add a prescription, medicine photo or report</h2><p class="mu">We read the text, you check it, and it is filed into the right AYUSH record automatically.</p>
+function add(){$('#pane').innerHTML=`<div class="c"><h2>Add a prescription, medicine photo or report</h2><p class="mu">We read the photo for you (AI is used for handwriting when enabled), you check it, and it is filed into the right AYUSH record. Nothing is saved until you confirm.</p>
 <label>What are you adding?</label><select id="dt"><option value="prescription">Doctor's prescription</option><option value="medicine">Medicine strip / bottle photo</option><option value="report">Lab / clinic report</option></select>
 <div class="drop"><p>📷 Take a photo or choose a file (JPG, PNG, PDF)</p><input type="file" id="f" accept="image/*,application/pdf" capture="environment"><button class="p" onclick="send()">Read it for me</button></div>
 <p style="text-align:center">or <button class="s" onclick="send(true)">Type it in myself</button></p></div>`}

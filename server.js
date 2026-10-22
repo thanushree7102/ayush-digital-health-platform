@@ -40,14 +40,14 @@ app.post('/api/v1/auth/login',(req,res)=>{const {phone,name,age,otp}=req.body;
   res.json({token:t,user:u,patient:u.patient_id?patDb.prepare('SELECT * FROM patients WHERE id=?').get(u.patient_id):null});});
 
 // ---- OCR/NLP worker: rule-based extraction (suggestions only until the patient confirms) ----
-const KW={ayurveda:/kashayam|kashaya|churna|vati\b|ghrita|bhasma|prakriti|vikriti|vata|pitta|kapha|panchakarma|arishta|asava|ayurved/g,siddha:/chooranam|mathirai|kudineer|thailam|parpam|chenduram|vatham|pitham|kabam|varmam|siddha/g,unani:/majun|qurs|sharbat|arq\b|mizaj|hijama|safravi|balghami|saudavi|damvi|unani/g,homoeopathy:/\b\d+\s?(?:c|ch|cm|x)\b|\bq\b|dilution|pulsatilla|nux vomica|arnica|sulphur|belladonna|calcarea|miasm|homoeo|homeo/g,yoga:/asana|pranayama|kriya|meditation|yoga|naturopathy|hydrotherapy|mud therapy/g};
+const KW={ayurveda:/kashayam|kashaya|churna|vati\b|ghrita|bhasma|prakriti|vikriti|vata|pitta|kapha|panchakarma|arishta|asava|ayurved|vaidya|baidyanath|zandu|dabur|patanjali|आयुर्वेद|चूर्ण/g,siddha:/chooranam|mathirai|kudineer|thailam|parpam|chenduram|vatham|pitham|kabam|varmam|siddha/g,unani:/majun|qurs|sharbat|arq\b|mizaj|hijama|safravi|balghami|saudavi|damvi|unani/g,homoeopathy:/\b\d+\s?(?:c|ch|cm|x)\b|\bq\b|dilution|pulsatilla|nux vomica|arnica|sulphur|belladonna|calcarea|miasm|homoeo|homeo/g,yoga:/asana|pranayama|kriya|meditation|yoga|naturopathy|hydrotherapy|mud therapy/g};
 const FIELDS={ayurveda:['Prakriti','Vikriti'],yoga:['Stress','Sleep'],unani:['Mizaj'],siddha:['Mukkutram'],homoeopathy:['Miasm']};
-const MED=/(\btab(?:let)?s?\b|\bcap(?:sule)?s?\b|\bsyp\b|syrup|kashayam|kashaya|churna|chooranam|vati\b|mathirai|ghrita|thailam|parpam|chenduram|majun|qurs|sharbat|arq\b|bhasma|\b\d+\s?(?:c|ch|cm|x)\b|\d+\s?(?:mg|ml|gm)\b)/i;
+const MED=/(\btab(?:let)?s?\b|\bcap(?:sule)?s?\b|\bsyp\b|syrup|powder|kashayam|kashaya|churna|chooranam|vati\b|mathirai|ghrita|thailam|parpam|chenduram|majun|qurs|sharbat|arq\b|bhasma|\b\d+\s?(?:c|ch|cm|x)\b|\d+\s?(?:mg|ml|gm)\b)/i;
 const DOSE=/\d+(?:\.\d+)?\s?(?:mg|ml|gm|g|c|ch|cm|x|tsp|drops?)\b/i,FREQ=/\b(\d-\d-\d(?:-\d)?|od|bd|bid|tds|tid|qid|hs|twice daily|once daily|thrice daily|at bedtime|before food|after food)\b/i,DUR=/\d+\s*(?:days?|weeks?|months?)/i;
 const iso=s=>{const m=(s||'').match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);return m?`${m[3].length==2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:''};
 // system-specific medicine details: Ayurveda Matra(dose)/Anupana/Kala, Siddha Anupana, Unani Badal, Homoeopathy Potency/Repetition
 const MEDF={ayurveda:['Form','Anupana','Kala'],siddha:['Form','Anupana'],unani:['Form','Badal'],homoeopathy:['Potency','Repetition'],yoga:[]};
-const FORM=/(kashayam|kashaya|kwath|churna|chooranam|vati|vatika|gutika|mathirai|ghrita|ghritam|thailam|taila|parpam|chenduram|bhasma|arishta|asava|lehyam|leha|majun|qurs|sharbat|arq|jawarish|itrifal|tincture|dilution|globules)/i;
+const FORM=/(powder|kashayam|kashaya|kwath|churna|chooranam|vati|vatika|gutika|mathirai|ghrita|ghritam|thailam|taila|parpam|chenduram|bhasma|arishta|asava|lehyam|leha|majun|qurs|sharbat|arq|jawarish|itrifal|tincture|dilution|globules)/i;
 const medExtra=l=>({Form:(l.match(FORM)||[''])[0],Anupana:(l.match(/(?:anupa?nam?a?|along with|with)\s*[:\-]?\s*(warm water|hot water|rose water|honey|milk|ghee|buttermilk|jaggery|water)/i)||[])[1]||'',
   Kala:(l.match(/(before food|after food|empty stomach|at bedtime|after meals|before meals)/i)||[''])[0],Potency:(l.match(/\b(\d+\s?(?:c|ch|cm)|1m|10m|50m|lm\s?\d+|\d+x)\b/i)||[''])[0],
   Badal:(l.match(/(?:badal|substitute)\s*[:\-]?\s*([a-z ]{3,25})/i)||[])[1]||'',Repetition:(l.match(/(?:repeat|rep\.?)\s*[:\-]?\s*([^,\n]{2,30})/i)||[])[1]||''});
@@ -59,16 +59,27 @@ function extract(text){const t=text||'',lc=t.toLowerCase(),pick=r=>(t.match(r)||
     return {name:l.replace(dose,'').replace(freq,'').replace(duration,'').replace(/^[\s\d.\-)*]+/,'').replace(/[\s,\-:]+$/,''),dose,freq,duration,extra:Object.fromEntries(Object.entries(medExtra(l)).filter(([,v])=>v))}}).filter(m=>m.name);
   return {system,doctor:pick(/(dr\.?\s+[a-z][a-z .]{2,30})/i),date:iso(t),complaint:pick(/(?:c\/o|complaints?|chief complaint)\s*[:\-]?\s*([^\n]+)/i),diagnosis:pick(/(?:diagnosis|dx|noi naadal)\s*[:\-]?\s*([^\n]+)/i),
     advice:pick(/(?:advice|pathya|pathyam|ghiza|diet)\s*[:\-]?\s*([^\n]+)/i),allergies:pick(/allerg(?:y|ic)\s*(?:to|:)?\s*([a-z, ]+)/i),findings,medicines:meds};}
-bus.on('DocumentUploaded',e=>setImmediate(async()=>{let text='';
-  try{const {createWorker}=require('tesseract.js');const w=await createWorker('eng');text=(await w.recognize(e.file)).data.text;await w.terminate()}catch(err){console.error('OCR failed:',err.message)}
-  docDb.prepare("UPDATE documents SET status='review',ocr_text=?,extracted=? WHERE id=?").run(text,JSON.stringify(extract(text)),e.id)}));
+// OCR/NLP service. Engine 1 (best, reads handwriting + Hindi): vision AI when ANTHROPIC_API_KEY is set. Engine 2 (fallback): Tesseract + rules.
+// Output is only a DRAFT: the patient reviews it before anything is saved (FR-DOC-05 / FR-AI-05).
+const PROMPT=`You read Indian AYUSH prescriptions (Ayurveda, Yoga & Naturopathy, Unani, Siddha, Homoeopathy), including handwriting and Hindi/Devanagari. Return ONLY one JSON object, no other text: {"transcription":"all text you can read","system":"ayurveda|yoga|unani|siddha|homoeopathy, or empty string if this is modern/allopathic medicine","doctor":"","date":"YYYY-MM-DD or empty","complaint":"","diagnosis":"","advice":"","allergies":"","findings":{"Prakriti":"","Vikriti":"","Mizaj":"","Mukkutram":"","Miasm":"","Stress":"","Sleep":""},"medicines":[{"name":"","dose":"","freq":"","duration":"","extra":{"Form":"","Anupana":"","Kala":"","Potency":"","Badal":"","Repetition":""}}]}. Translate Hindi to English. Use an empty string for anything not written. Never guess or invent.`;
+async function visionRead(file,mime){const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'x-api-key':process.env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01','content-type':'application/json'},
+  body:JSON.stringify({model:process.env.ANTHROPIC_MODEL||'claude-sonnet-5-5',max_tokens:1500,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mime,data:fs.readFileSync(file).toString('base64')}},{type:'text',text:PROMPT}]}]})});
+  if(!r.ok)throw new Error('vision API '+r.status);const t=(await r.json()).content.map(c=>c.text||'').join('');return JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1))}
+bus.on('DocumentUploaded',e=>setImmediate(async()=>{let text='',ex=null;
+  if(process.env.ANTHROPIC_API_KEY){try{const v=await visionRead(e.file,e.mime);text=v.transcription||'';const sys=SYS.includes(v.system)?v.system:'';
+    ex={system:sys,doctor:v.doctor||'',date:v.date||'',complaint:v.complaint||'',diagnosis:v.diagnosis||'',advice:v.advice||'',allergies:v.allergies||'',
+      findings:Object.fromEntries(Object.entries(v.findings||{}).filter(([k,x])=>x&&(FIELDS[sys]||[]).includes(k))),
+      medicines:(v.medicines||[]).filter(m=>m.name).map(m=>({name:m.name,dose:m.dose||'',freq:m.freq||'',duration:m.duration||'',extra:Object.fromEntries(Object.entries(m.extra||{}).filter(([,x])=>x))}))}}
+    catch(err){console.error('Vision read failed, falling back to Tesseract:',err.message)}}
+  if(!ex){try{const {createWorker}=require('tesseract.js');const w=await createWorker('eng');text=(await w.recognize(e.file)).data.text;await w.terminate()}catch(err){console.error('OCR failed:',err.message)}ex=extract(text)}
+  docDb.prepare("UPDATE documents SET status='review',ocr_text=?,extracted=? WHERE id=?").run(text,JSON.stringify(ex),e.id)}));
 
 // ---- DOCUMENT service ----
 const up=multer({dest:'data/uploads',limits:{fileSize:10*1024*1024}});
 app.post('/api/v1/documents',auth,roles('patient'),up.single('file'),(req,res)=>{const f=req.file,img=f&&/^image\/(jpeg|png|webp)$/.test(f.mimetype);
   if(f&&!img&&f.mimetype!=='application/pdf'){fs.unlinkSync(f.path);return res.status(400).json({error:'Only JPG, PNG or PDF files'})}
   const id=docDb.prepare('INSERT INTO documents(patient_id,type,file,mime,status,extracted) VALUES(?,?,?,?,?,?)').run(req.user.patient_id,req.body.type||'prescription',f?.path||null,f?.mimetype||null,img?'processing':'review','{}').lastInsertRowid;
-  audit(req,'UPLOAD_DOCUMENT','document:'+id,'ok');if(img)bus.emit('DocumentUploaded',{id,file:f.path});res.status(201).json({id});});
+  audit(req,'UPLOAD_DOCUMENT','document:'+id,'ok');if(img)bus.emit('DocumentUploaded',{id,file:f.path,mime:f.mimetype});res.status(201).json({id});});
 const myDoc=(req)=>docDb.prepare('SELECT * FROM documents WHERE id=? AND patient_id=?').get(+req.params.id,req.user.patient_id);
 app.get('/api/v1/documents',auth,roles('patient'),(req,res)=>res.json(docDb.prepare('SELECT id,type,status,created_at FROM documents WHERE patient_id=? ORDER BY id DESC').all(req.user.patient_id)));
 app.get('/api/v1/documents/:id',auth,roles('patient'),(req,res)=>{const d=myDoc(req);d?res.json({...d,extracted:JSON.parse(d.extracted),file:!!d.file}):res.status(404).json({error:'not_found'})});
