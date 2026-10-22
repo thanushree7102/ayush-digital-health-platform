@@ -8,11 +8,13 @@ const idDb=open('identity',`CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY 
 const patDb=open('patient',`CREATE TABLE IF NOT EXISTS patients(id INTEGER PRIMARY KEY,abha_id TEXT,name TEXT,age INTEGER,allergies TEXT DEFAULT '')`);
 const docDb=open('document',`CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY,patient_id INTEGER,type TEXT,file TEXT,mime TEXT,status TEXT,ocr_text TEXT,extracted TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
 const encDb=open('encounter',`CREATE TABLE IF NOT EXISTS encounters(id INTEGER PRIMARY KEY,patient_id INTEGER,system TEXT,doctor TEXT,visit_date TEXT,complaint TEXT,doc_id INTEGER)`);
-const medDb=open('medication',`CREATE TABLE IF NOT EXISTS prescriptions(id INTEGER PRIMARY KEY,patient_id INTEGER,encounter_id INTEGER,system TEXT,name TEXT,dose TEXT,freq TEXT,duration TEXT,safety TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+const medDb=open('medication',`CREATE TABLE IF NOT EXISTS prescriptions(id INTEGER PRIMARY KEY,patient_id INTEGER,encounter_id INTEGER,system TEXT,name TEXT,dose TEXT,freq TEXT,duration TEXT,safety TEXT,extra TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+try{medDb.exec('ALTER TABLE prescriptions ADD COLUMN extra TEXT')}catch{} // upgrade older data/ folders
 const conDb=open('consent',`CREATE TABLE IF NOT EXISTS consents(id INTEGER PRIMARY KEY,patient_id INTEGER,grantee_user_id INTEGER,valid_till TEXT,status TEXT DEFAULT 'active')`);
 const audDb=open('audit',`CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,ts TEXT DEFAULT CURRENT_TIMESTAMP,user_id INTEGER,role TEXT,action TEXT,resource TEXT,outcome TEXT,cid TEXT);
  CREATE TRIGGER IF NOT EXISTS a_u BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'append-only'); END; CREATE TRIGGER IF NOT EXISTS a_d BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'append-only'); END;`);
-const tlDb=open('timeline',`CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,patient_id INTEGER,system TEXT,type TEXT,summary TEXT,event_date TEXT,doc_id INTEGER)`); // index/projection built from events
+const tlDb=open('timeline',`CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,patient_id INTEGER,system TEXT,type TEXT,summary TEXT,event_date TEXT,doc_id INTEGER,enc_id INTEGER)`); // index/projection built from events: holds only a reference (enc_id), not the clinical data
+try{tlDb.exec('ALTER TABLE events ADD COLUMN enc_id INTEGER')}catch{}
 const DOM=`CREATE TABLE IF NOT EXISTS case_record(id INTEGER PRIMARY KEY,patient_id INTEGER,encounter_id INTEGER,diagnosis TEXT,findings TEXT,advice TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`;
 const dom=Object.fromEntries(SYS.map(s=>[s,open(s,DOM)])); // findings JSON differs per system (Prakriti / Mizaj / Mukkutram / Miasm / Lifestyle)
 if(!idDb.prepare('SELECT 1 FROM users').get())idDb.exec(`INSERT INTO users(phone,name,role,system) VALUES('9000000001','Dr. Ravi (Ayurveda)','practitioner','ayurveda'),('9000000002','Dr. Meena (Siddha)','practitioner','siddha')`);
@@ -43,12 +45,18 @@ const FIELDS={ayurveda:['Prakriti','Vikriti'],yoga:['Stress','Sleep'],unani:['Mi
 const MED=/(\btab(?:let)?s?\b|\bcap(?:sule)?s?\b|\bsyp\b|syrup|kashayam|kashaya|churna|chooranam|vati\b|mathirai|ghrita|thailam|parpam|chenduram|majun|qurs|sharbat|arq\b|bhasma|\b\d+\s?(?:c|ch|cm|x)\b|\d+\s?(?:mg|ml|gm)\b)/i;
 const DOSE=/\d+(?:\.\d+)?\s?(?:mg|ml|gm|g|c|ch|cm|x|tsp|drops?)\b/i,FREQ=/\b(\d-\d-\d(?:-\d)?|od|bd|bid|tds|tid|qid|hs|twice daily|once daily|thrice daily|at bedtime|before food|after food)\b/i,DUR=/\d+\s*(?:days?|weeks?|months?)/i;
 const iso=s=>{const m=(s||'').match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);return m?`${m[3].length==2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:''};
+// system-specific medicine details: Ayurveda Matra(dose)/Anupana/Kala, Siddha Anupana, Unani Badal, Homoeopathy Potency/Repetition
+const MEDF={ayurveda:['Form','Anupana','Kala'],siddha:['Form','Anupana'],unani:['Form','Badal'],homoeopathy:['Potency','Repetition'],yoga:[]};
+const FORM=/(kashayam|kashaya|kwath|churna|chooranam|vati|vatika|gutika|mathirai|ghrita|ghritam|thailam|taila|parpam|chenduram|bhasma|arishta|asava|lehyam|leha|majun|qurs|sharbat|arq|jawarish|itrifal|tincture|dilution|globules)/i;
+const medExtra=l=>({Form:(l.match(FORM)||[''])[0],Anupana:(l.match(/(?:anupa?nam?a?|along with|with)\s*[:\-]?\s*(warm water|hot water|rose water|honey|milk|ghee|buttermilk|jaggery|water)/i)||[])[1]||'',
+  Kala:(l.match(/(before food|after food|empty stomach|at bedtime|after meals|before meals)/i)||[''])[0],Potency:(l.match(/\b(\d+\s?(?:c|ch|cm)|1m|10m|50m|lm\s?\d+|\d+x)\b/i)||[''])[0],
+  Badal:(l.match(/(?:badal|substitute)\s*[:\-]?\s*([a-z ]{3,25})/i)||[])[1]||'',Repetition:(l.match(/(?:repeat|rep\.?)\s*[:\-]?\s*([^,\n]{2,30})/i)||[])[1]||''});
 function extract(text){const t=text||'',lc=t.toLowerCase(),pick=r=>(t.match(r)||[])[1]?.trim()||'';
   const score=Object.fromEntries(SYS.map(s=>[s,(lc.match(KW[s])||[]).length]));const best=SYS.reduce((a,b)=>score[b]>score[a]?b:a,'ayurveda');
   const system=score[best]?best:'';const findings={};
   for(const f of FIELDS[system||'ayurveda'])findings[f]=pick(new RegExp(f+'\\s*[:\\-]\\s*([^\\n,;]+)','i'));
-  const meds=t.split('\n').filter(l=>l.length<120&&MED.test(l)).map(l=>{const dose=(l.match(DOSE)||[''])[0],freq=(l.match(FREQ)||[''])[0],duration=(l.match(DUR)||[''])[0];
-    return {name:l.replace(dose,'').replace(freq,'').replace(duration,'').replace(/^[\s\d.\-)*]+/,'').replace(/[\s,\-:]+$/,''),dose,freq,duration}}).filter(m=>m.name);
+  const meds=t.split('\n').filter(l=>l.length<120&&MED.test(l)).map(l=>{l=l.replace(/[|]+/g,' ').replace(/\s{2,}/g,' ');const dose=(l.match(DOSE)||[''])[0],freq=(l.match(FREQ)||[''])[0],duration=(l.match(DUR)||[''])[0];
+    return {name:l.replace(dose,'').replace(freq,'').replace(duration,'').replace(/^[\s\d.\-)*]+/,'').replace(/[\s,\-:]+$/,''),dose,freq,duration,extra:Object.fromEntries(Object.entries(medExtra(l)).filter(([,v])=>v))}}).filter(m=>m.name);
   return {system,doctor:pick(/(dr\.?\s+[a-z][a-z .]{2,30})/i),date:iso(t),complaint:pick(/(?:c\/o|complaints?|chief complaint)\s*[:\-]?\s*([^\n]+)/i),diagnosis:pick(/(?:diagnosis|dx|noi naadal)\s*[:\-]?\s*([^\n]+)/i),
     advice:pick(/(?:advice|pathya|pathyam|ghiza|diet)\s*[:\-]?\s*([^\n]+)/i),allergies:pick(/allerg(?:y|ic)\s*(?:to|:)?\s*([a-z, ]+)/i),findings,medicines:meds};}
 bus.on('DocumentUploaded',e=>setImmediate(async()=>{let text='';
@@ -87,16 +95,22 @@ app.post('/api/v1/documents/:id/confirm',auth,roles('patient'),(req,res)=>{const
   const date=x.date||new Date().toISOString().slice(0,10);
   const enc=encDb.prepare('INSERT INTO encounters(patient_id,system,doctor,visit_date,complaint,doc_id) VALUES(?,?,?,?,?,?)').run(pid,x.system,x.doctor||'',date,x.complaint||'',d.id).lastInsertRowid;
   dom[x.system].prepare('INSERT INTO case_record(patient_id,encounter_id,diagnosis,findings,advice) VALUES(?,?,?,?,?)').run(pid,enc,x.diagnosis||'',JSON.stringify(x.findings||{}),x.advice||'');
-  for(const m of meds)medDb.prepare('INSERT INTO prescriptions(patient_id,encounter_id,system,name,dose,freq,duration,safety) VALUES(?,?,?,?,?,?,?,?)').run(pid,enc,x.system,m.name,m.dose||'',m.freq||'',m.duration||'',warnings.some(w=>w.med===m.name)?'warned':'ok');
+  for(const m of meds){const ex=Object.fromEntries((MEDF[x.system]||[]).map(k=>[k,(m.extra?.[k]||'').trim()]).filter(([,v])=>v));
+    medDb.prepare('INSERT INTO prescriptions(patient_id,encounter_id,system,name,dose,freq,duration,safety,extra) VALUES(?,?,?,?,?,?,?,?,?)').run(pid,enc,x.system,m.name,m.dose||'',m.freq||'',m.duration||'',warnings.some(w=>w.med===m.name)?'warned':'ok',JSON.stringify(ex));}
   docDb.prepare("UPDATE documents SET status='saved' WHERE id=?").run(d.id);audit(req,'CONFIRM_RECORD','encounter:'+enc,'warnings:'+warnings.length);
-  bus.emit('ConsultationSaved',{pid,system:x.system,doc:d.id,date,summary:[x.diagnosis||x.complaint,x.doctor&&'by '+x.doctor,meds.length&&meds.map(m=>m.name).join(', ')].filter(Boolean).join(' · ')});
+  bus.emit('ConsultationSaved',{pid,system:x.system,doc:d.id,enc,date,summary:[x.diagnosis||x.complaint,x.doctor&&'by '+x.doctor,meds.length&&meds.map(m=>m.name).join(', ')].filter(Boolean).join(' · ')});
   res.status(201).json({saved_to:['Document service (original + extracted text)','Encounter service (visit)',`${x.system[0].toUpperCase()+x.system.slice(1)} service (own database)`,`Medication service (${meds.length} medicine${meds.length==1?'':'s'})`,'Patient service (allergies)','Longitudinal timeline (via event)'],warnings});});
-bus.on('ConsultationSaved',e=>tlDb.prepare('INSERT INTO events(patient_id,system,type,summary,event_date,doc_id) VALUES(?,?,?,?,?,?)').run(e.pid,e.system,'Visit',e.summary,e.date,e.doc)); // Longitudinal record builder
+bus.on('ConsultationSaved',e=>tlDb.prepare('INSERT INTO events(patient_id,system,type,summary,event_date,doc_id,enc_id) VALUES(?,?,?,?,?,?,?)').run(e.pid,e.system,'Visit',e.summary,e.date,e.doc,e.enc)); // Longitudinal record builder
 
 // ---- Longitudinal record + consent ----
+// Longitudinal service resolves each timeline reference through the owning services (Encounter, the AYUSH system's DB, Medication)
+const visit=e=>{if(!e.enc_id)return e;const enc=encDb.prepare('SELECT doctor,complaint FROM encounters WHERE id=?').get(e.enc_id)||{},
+  cr=dom[e.system]?.prepare('SELECT diagnosis,findings,advice FROM case_record WHERE encounter_id=?').get(e.enc_id)||{};
+  return {...e,visit:{doctor:enc.doctor,complaint:enc.complaint,diagnosis:cr.diagnosis,findings:JSON.parse(cr.findings||'{}'),advice:cr.advice,
+    medicines:medDb.prepare('SELECT name,dose,freq,duration,extra FROM prescriptions WHERE encounter_id=?').all(e.enc_id)}}};
 const record=pid=>({patient:patDb.prepare('SELECT id,abha_id,name,age,allergies FROM patients WHERE id=?').get(pid),
-  medicines:medDb.prepare('SELECT system,name,dose,freq,duration,safety,created_at FROM prescriptions WHERE patient_id=? ORDER BY id DESC').all(pid),
-  timeline:tlDb.prepare('SELECT system,type,summary,event_date FROM events WHERE patient_id=? ORDER BY event_date DESC,id DESC').all(pid)});
+  medicines:medDb.prepare('SELECT system,name,dose,freq,duration,safety,extra,created_at FROM prescriptions WHERE patient_id=? ORDER BY id DESC').all(pid),
+  timeline:tlDb.prepare('SELECT system,type,summary,event_date,enc_id FROM events WHERE patient_id=? ORDER BY event_date DESC,id DESC').all(pid).map(visit)});
 app.get('/api/v1/me/record',auth,roles('patient'),(req,res)=>res.json(record(req.user.patient_id)));
 app.get('/api/v1/practitioners',auth,(req,res)=>res.json(idDb.prepare("SELECT id,name,system FROM users WHERE role='practitioner'").all()));
 app.get('/api/v1/consents',auth,roles('patient'),(req,res)=>res.json(conDb.prepare('SELECT * FROM consents WHERE patient_id=? ORDER BY id DESC').all(req.user.patient_id).map(c=>({...c,grantee:idDb.prepare('SELECT name FROM users WHERE id=?').get(c.grantee_user_id)?.name}))));
