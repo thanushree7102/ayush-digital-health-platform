@@ -1,0 +1,84 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AYUSH Digital Health Platform</title>
+<style>
+:root{--bg:#f4f9f5;--cd:#fff;--tx:#14261c;--mu:#5b6b62;--ac:#1f7a4d;--bd:#d6e4da;--wa:#b45309;--er:#b91c1c}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1612;--cd:#17211b;--tx:#e6f0ea;--mu:#9bb0a3;--ac:#4cc58a;--bd:#2a3a31;--wa:#f59e0b;--er:#f87171}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{background:var(--ac);color:#fff;padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
+header h1{font-size:18px;margin:0}header small{opacity:.9}#who{background:#0003;padding:4px 12px;border-radius:99px;font-size:13px}
+nav{display:flex;gap:4px;padding:8px 16px;overflow-x:auto;background:var(--cd);border-bottom:1px solid var(--bd)}
+nav button{border:0;background:none;color:var(--mu);padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit;white-space:nowrap}nav button.on{background:var(--ac);color:#fff}
+main{max-width:1100px;margin:0 auto;padding:20px}section{display:none}section.on{display:block}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}.c{background:var(--cd);border:1px solid var(--bd);border-radius:12px;padding:16px}
+h2{margin:4px 0 12px}h3{margin:0 0 6px;font-size:16px}p{margin:6px 0}.mu{color:var(--mu);font-size:13px}
+button.p{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font:inherit}button.s{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:4px 10px;cursor:pointer}
+input,select,textarea{width:100%;padding:8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit;margin:4px 0 8px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid var(--bd);padding:8px;text-align:left;vertical-align:top}th{color:var(--mu)}
+.tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;background:var(--bd);margin:1px}.err{color:var(--er)}.warn{color:var(--wa)}
+.layer{padding:10px 14px;border-radius:10px;margin:6px 0;border:1px solid var(--bd);background:var(--cd)}.layer b{color:var(--ac)}
+.ev{border-left:4px solid var(--ac);padding:6px 12px;margin:8px 0;background:var(--bg);border-radius:0 8px 8px 0}
+</style></head><body>
+<header><div><h1>AYUSH Digital Health Platform</h1><small>Different AYUSH Systems. Different Clinical Data. One Patient. One Longitudinal History.</small></div><div id="who">Not signed in</div></header>
+<nav id="nav"></nav><main>
+<section id="overview"><h2>Architecture &amp; how the documents interrelate</h2>
+<div class="layer"><b>Clients (6 actors)</b> Patient · Practitioner · Clinic/Hospital · Caregiver · Researcher/Govt · Admin</div>
+<div class="layer"><b>API Gateway</b> OAuth2/ABHA auth · routing · rate limit · versioning · logging (FR-GWY)</div>
+<div class="layer"><b>Domain services</b> Ayurveda · Yoga &amp; Naturopathy · Unani · Siddha · Homoeopathy — each with its own DB (FR-DOM)</div>
+<div class="layer"><b>Common clinical</b> Patient · Practitioner · Appointment · Encounter · Medication · Document · Consent · Notification · Audit (FR-PAT…APT)</div>
+<div class="layer"><b>Integration</b> ABDM/ABHA · Terminology (NAMASTE, ICD-11 TM2) · External systems (FR-ABD, FR-TER, FR-EXT)</div>
+<div class="layer"><b>Event bus (RabbitMQ)</b> ConsultationSaved · PrescriptionSaved · DocumentUploaded · SuggestionGenerated</div>
+<div class="layer"><b>AI &amp; Data</b> OCR/NLP · AI intake · Safety &amp; red flags · Analytics · Longitudinal record (FR-DOC, FR-AI, FR-SAF, FR-RED, FR-ANA, FR-LON). <i>Practitioner decides. AI only assists.</i></div>
+<h2>Document map</h2><div id="docs"></div>
+<h2>Cross-document dependency rules</h2><div id="deps"></div></section>
+<section id="actors"><h2>Actors — choose one to sign in (stand-in for OAuth2 / ABHA login)</h2><div class="g" id="actorGrid"></div></section>
+<section id="work"><h2>Workspace</h2><div id="ws" class="mu">Sign in as an actor first.</div></section>
+<section id="nfr"><h2>Non-functional requirements</h2><p class="mu">Targets are <b>proposed</b>: the architecture report states numeric targets are not yet agreed. Each row traces to the mechanism and FRs that deliver it.</p>
+<input id="nfrq" placeholder="Filter (e.g. consent, availability, FHIR)…"><div style="overflow-x:auto"><table id="nfrT"></table></div></section>
+</main><script>
+const $=s=>document.querySelector(s);let tok=null,me=null;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(p,o={}){const r=await fetch('/api/v1'+p,{...o,headers:{'Content-Type':'application/json',...(tok?{Authorization:'Bearer '+tok}:{})},body:o.body?JSON.stringify(o.body):undefined});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||r.status),{data:j});return j}
+const ACTORS=[
+{r:'patient',n:'Patient',d:'Registers with ABHA, views own record, grants/revokes consent, sees who accessed their data.',s:'Patient · Consent · Audit · Longitudinal · Notification',u:1},
+{r:'practitioner',n:'AYUSH Practitioner',d:'Records system-specific consultations, reviews history, prescribes (safety-checked). Writes only to own AYUSH system.',s:'Domain · Encounter · Medication · Safety · Terminology',u:2},
+{r:'clinic',n:'Clinic / Hospital',d:'Manages practitioners and facility-level records and reports; needs patient consent for records.',s:'Practitioner · Appointment · Analytics',u:4},
+{r:'caregiver',n:'Caregiver / Family',d:'Acts for a patient only with that patient’s consent.',s:'Patient (family link) · Consent · Longitudinal',u:5},
+{r:'researcher',n:'Researcher / Government',d:'De-identified aggregates only; never identifiable records.',s:'Analytics',u:6},
+{r:'admin',n:'Administrator',d:'Manages users, roles, config; reads the audit trail; no clinical content access.',s:'Practitioner approval · Audit · Gateway config',u:7}];
+const DOCS=[
+['Domain Microservices (ayurada.docx)','5 AYUSH services + FR-DOM common','60 FR / 54 modules','Needs Patient, Encounter, Medication, Consent, Audit, Terminology; emits events for Longitudinal + Analytics'],
+['Common Clinical Services','Patient, Practitioner, Encounter, Medication, Document, Consent, Notification, Audit, Appointment + FR-COM','81 FR / 55 modules','Patient/Practitioner/Appointment → Encounter → Medication/Document; Consent guards all; Audit + Notification called by all'],
+['API Gateway & Integration','Gateway, ABDM/ABHA, Terminology, External Systems, Longitudinal (FR-LPR) + FR-INT','58 FR / 47 modules','Gateway fronts everything; ABDM links Patient+Consent+Document; Terminology called by all domain services'],
+['AI & Data Microservices (PDF)','Document+OCR/NLP, AI Intake, Safety & Red-Flag, Analytics, Longitudinal (FR-LON)','37 FR with priorities','Consumes events; draft-only AI; consent before any AI processing; Safety called by Medication'],
+['Detailed Architecture Report','Whole system, NFRs, data stores, REST vs events, CI/CD, trade-offs','Platform FR-1…12','The parent document: actors, event catalogue, data rules, risks']];
+const DEPS=['Domain service → Medication (never prescribes directly) → Safety check → Patient allergies (REST)','Any service → Consent check before reading shared data; every service → Audit event (FR-COM-03/FR-DOM-05)','Domain/Encounter/Medication publish events → Longitudinal builder (index only) + Analytics (de-identified) + Notification','Document upload → DocumentUploaded → OCR/NLP → Terminology codes → practitioner confirms → saved to domain service','ABDM consent callbacks → Consent service → permits FHIR export via ABDM/External services',
+'<span class="warn">Review flags:</span> Document (FR-DOC) and Longitudinal (FR-LPR vs FR-LON) are defined in two documents with different IDs/wording — reconcile before sign-off. Practitioner and Appointment services are not in the diagram’s Common box.'];
+$('#docs').innerHTML='<div style="overflow-x:auto"><table><tr><th>Document</th><th>Covers</th><th>Size</th><th>Interrelation</th></tr>'+DOCS.map(d=>'<tr>'+d.map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join('')+'</table></div>';
+$('#deps').innerHTML=DEPS.map(d=>'<div class="layer">'+(d.startsWith('<')?d:esc(d))+'</div>').join('');
+const TABS=[['overview','Architecture'],['nfr','Non-functional']];
+$('#nav').innerHTML=TABS.map(t=>`<button data-t="${t[0]}">${t[1]}</button>`).join('');
+function show(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===id))}
+$('#nav').onclick=e=>e.target.dataset.t&&show(e.target.dataset.t);
+$('#actorGrid').innerHTML=ACTORS.map(a=>`<div class="c"><h3>${a.n}</h3><p>${a.d}</p><p class="mu">Services: ${a.s}</p><button class="p" onclick="login(${a.u})">Sign in as ${a.n.split(' ')[0]}</button></div>`).join('');
+async function login(id){const j=await api('/login',{method:'POST',body:{user_id:id}});tok=j.token;me=j.user;$('#who').textContent=me.name+' · '+me.role;await ws();show('work')}
+const HINT={ayurveda:'Prakriti / Vikriti (e.g. Vata-Pitta; Kapha aggravated)',siddha:'Mukkutram (Vatham / Pitham / Kabam)',unani:'Mizaj (Damvi / Safravi / Balghami / Saudavi)',yoga:'Lifestyle: stress, sleep, BMI',homoeopathy:'Miasm / rubrics'};
+async function ws(){const r=me.role,w=$('#ws');let h='';
+ if(['patient','practitioner','clinic','caregiver'].includes(r))h+=`<div class="c"><h3>Longitudinal timeline</h3><input id="pid" type="number" value="${me.patient_id||1}" ${r=='patient'?'disabled':''} placeholder="Patient id (1 or 2)"><select id="sysf"><option value="">All AYUSH systems</option>${Object.keys(HINT).map(s=>`<option>${s}</option>`).join('')}</select><button class="p" onclick="tl()">Load timeline</button> ${r=='practitioner'?'<button class="s" onclick="tl(1)">Emergency (break-glass)</button>':''}<div id="tl"></div></div>`;
+ if(r=='practitioner')h+=`<div class="c" style="margin-top:14px"><h3>New ${me.system} consultation</h3><input id="e_p" type="number" value="1" placeholder="Patient id"><input id="e_c" placeholder="Chief complaint"><input id="e_d" placeholder="Diagnosis code (NAMASTE / ICD-11 TM2)"><input id="e_a" placeholder="${HINT[me.system]}"><input id="e_m" placeholder="Medicine (try: penicillin for patient 1)"><input id="e_o" placeholder="Override reason (only if warned)"><button class="p" onclick="enc()">Save consultation</button><div id="em"></div></div>`;
+ if(r=='patient')h+=`<div class="c" style="margin-top:14px"><h3>My consents</h3><select id="gu"></select><input id="gd" type="number" value="30" placeholder="Valid days"><button class="p" onclick="grant()">Grant consent</button><div id="cl"></div></div>`;
+ if(['researcher','admin','clinic'].includes(r))h+=`<div class="c" style="margin-top:14px"><h3>De-identified analytics</h3><button class="p" onclick="an()">Load</button><pre id="an"></pre></div>`;
+ if(['admin','patient'].includes(r))h+=`<div class="c" style="margin-top:14px"><h3>${r=='admin'?'Audit log':'Who accessed my record'}</h3><button class="p" onclick="au()">Load</button><div id="au" style="overflow-x:auto"></div></div>`;
+ w.innerHTML=h;if(r=='patient'){const us=await api('/users');$('#gu').innerHTML=us.filter(u=>u.role!='patient'&&u.role!='admin').map(u=>`<option value="${u.id}">${esc(u.name)} (${u.role})</option>`).join('');cons()}}
+async function tl(bg){const el=$('#tl');try{let q='?system='+$('#sysf').value;if(bg){const why=prompt('Emergency reason (audited):');if(!why)return;q+='&break_glass='+encodeURIComponent(why)}
+ const j=await api(`/patients/${$('#pid').value}/timeline${q}`);el.innerHTML=`<p><b>${esc(j.patient.name)}</b> · ABHA ${esc(j.patient.abha_id)} · allergies: ${esc(j.patient.allergies||'none')} <span class="tag">${j.mode}</span></p><p class="mu">Last updated: ${esc(j.last_updated)}</p>`+j.events.map(e=>`<div class="ev"><span class="tag">${e.system}</span> <span class="mu">${esc(e.created_at)}</span><br>${esc(e.summary)}</div>`).join('')}
+ catch(e){el.innerHTML=`<p class="err">Blocked: ${esc(e.message)} (cid ${esc(e.data?.cid)})</p>`}}
+async function enc(){const m=$('#em');try{const j=await api('/encounters',{method:'POST',body:{patient_id:$('#e_p').value,system:me.system,complaint:$('#e_c').value,diagnosis_code:$('#e_d').value,assessment:$('#e_a').value,medicine:$('#e_m').value,override_reason:$('#e_o').value}});m.innerHTML=`<p>Saved (#${j.id}, safety: ${j.safety}). Event published → timeline updates asynchronously.</p>`}catch(e){m.innerHTML=`<p class="${e.message=='safety_warning'?'warn':'err'}">${esc(e.data?.detail||e.message)}</p>`}}
+async function cons(){const l=await api('/consents');$('#cl').innerHTML='<table><tr><th>Grantee</th><th>Purpose</th><th>Till</th><th>Status</th><th></th></tr>'+l.map(c=>`<tr><td>${esc(c.grantee)}</td><td>${esc(c.purpose)}</td><td>${c.valid_till}</td><td>${c.status}</td><td>${c.status=='active'?`<button class="s" onclick="rev(${c.id})">Revoke</button>`:''}</td></tr>`).join('')+'</table>'}
+async function grant(){await api('/consents',{method:'POST',body:{grantee_user_id:$('#gu').value,days:+$('#gd').value}});cons()}
+async function rev(i){await api(`/consents/${i}/revoke`,{method:'POST'});cons()}
+async function an(){$('#an').textContent=JSON.stringify(await api('/analytics'),null,2)}
+async function au(){const l=await api('/audit');$('#au').innerHTML='<table><tr>'+Object.keys(l[0]||{time:1}).map(k=>`<th>${k}</th>`).join('')+'</tr>'+l.map(r=>'<tr>'+Object.values(r).map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join('')+'</table>'}
+let NFR=[];async function nfr(){NFR=await api('/nfr');drawN()}
+function drawN(){const q=$('#nfrq').value.toLowerCase();$('#nfrT').innerHTML='<tr><th>ID / Attribute</th><th>Requirement</th><th>How the architecture delivers it</th><th>Target (proposed)</th><th>Verification</th><th>Traces to</th></tr>'+NFR.filter(n=>JSON.stringify(n).toLowerCase().includes(q)).map(n=>`<tr><td><b>${n.id}</b><br>${esc(n.attribute)}</td><td>${esc(n.requirement)}</td><td>${esc(n.mechanism)}</td><td>${esc(n.target)}</td><td>${esc(n.verification)}</td><td>${esc(n.traces)}</td></tr>`).join('')}
+$('#nfrq').oninput=drawN;nfr();show('overview');
+</script></body></html>

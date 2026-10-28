@@ -1,2 +1,6 @@
 node_modules/
 data/
+.env
+auth_info_baileys/
+*.traineddata
+!tessdata/*.traineddata
