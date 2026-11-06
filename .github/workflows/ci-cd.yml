@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check backend JavaScript syntax
+        run: node --check server.js && node --check db.js
+
+      - name: Run automated tests when configured
+        run: npm run test --if-present
+
+      - name: Build frontend
+        run: npm run build
+
+# Deployment is intentionally not configured: no hosting target or deployment
+# credentials are present in this repository. Add a provider-specific job only
+# after its target and GitHub Actions secrets are configured.

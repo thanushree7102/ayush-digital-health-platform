@@ -1,3 +1,44 @@
-{"name":"ayush-digital-health-platform","version":"3.0.0","main":"server.js","scripts":{"start":"node server.js","data":"node show-data.js"},
-"dependencies":{"better-sqlite3":"^11.3.0","dotenv":"^16.4.7","express":"^4.19.2","multer":"^1.4.5-lts.1","qrcode":"^1.5.4","tesseract.js":"^5.1.1"},
-"optionalDependencies":{"@whiskeysockets/baileys":"^7.0.0-rc14","pino":"^10.4.0"}}
+{
+  "name": "ayush-unified",
+  "version": "2.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "vite --host 0.0.0.0",
+    "dev:all": "node scripts/dev-all.js",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "smoke": "node scripts/smoke-test.js && node scripts/otp-test.js && node scripts/voice-test.js",
+    "test:otp": "node scripts/otp-test.js",
+    "models": "node scripts/copy-models.js",
+    "postinstall": "node scripts/copy-models.js",
+    "test:voice": "node scripts/voice-test.js"
+  },
+  "dependencies": {
+    "@vladmandic/face-api": "^1.7.15",
+    "axios": "^1.21.0",
+    "better-sqlite3": "^12.0.0",
+    "cors": "^2.8.5",
+    "dayjs": "^1.11.23",
+    "dotenv": "^18.0.9",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "qrcode": "^1.5.4",
+    "tesseract.js": "^5.1.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.5"
+  },
+  "optionalDependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "pino": "^10.4.0",
+    "@huggingface/transformers": "^3.8.1",
+    "ffmpeg-static": "^5.3.0"
+  },
+  "description": "AYUSH Digital Health Platform: face-recognition registration for all roles, demo Aadhaar fetch, WhatsApp, voice + English/Hindi/Kannada"
+}

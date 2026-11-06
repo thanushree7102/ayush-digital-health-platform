@@ -1,6 +1,10 @@
 node_modules/
-data/
+ayush.db
+ayush.db-shm
+ayush.db-wal
+ayush.secret
+storage/
+dist/
 .env
-auth_info_baileys/
-*.traineddata
-!tessdata/*.traineddata
+data/
+*.log
